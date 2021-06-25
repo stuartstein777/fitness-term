@@ -1,12 +1,14 @@
 (ns fitness-term.core
-  (:require [cheshire.core :as json]))
+  (:require [cheshire.core :as json]
+            [clojure.pprint :as pprint]))
 
 (import 'java.time.format.DateTimeFormatter
         'java.time.LocalDate)
 
 ;; Load the current stats from the file.
 (defn load-json-file []
-  (-> "//home//stuart//Source//stuartstein777.github.io//fitness//daily.json"
+  (-> "//home//stuart//Source//stuartstein777.github.io//fitness//debug-daily.json"
+      #_"debug-daily.json"
       (slurp)
       (json/parse-string true)))
 
@@ -23,6 +25,26 @@
     (if (= "" num-laps)
       10
       (Integer/parseInt num-laps))))
+
+(defn get-total-time [total]
+  (let [mins (quot (.toSeconds total) 60)
+        seconds (->> (.minusSeconds total (* 60 (.toMinutes total)))
+                     .getSeconds)
+        ms (-> total
+               (.minusSeconds (+ (* mins 60) seconds))
+               (.toMillis))]
+    (str (format "%02d" mins)
+         ":"
+         (format "%02d" seconds)
+         "."
+         (format "%03d" ms))))
+
+(defn print-lap-summary [laps]
+  (let [total-time (->> (map :time-ms laps)
+                        (reduce +)
+                        (java.time.Duration/ofMillis))]
+    (println "Total time: " (get-total-time total-time))
+    (pprint/print-table (map (fn [lap] (dissoc lap :time-ms)) laps))))
 
 (defn sum-milliseconds [[m s ms]]
   (+ (* m 60 1000) (* s 1000) ms))
@@ -46,45 +68,45 @@
                                             :time-ms (to-ms lap)}))))
      laps)))
 
-(defn get-total-time [total]
-  (let [mins (quot (.toSeconds total) 60)
-        seconds (->> (.minusSeconds total (* 60 (.toMinutes total)))
-                     .getSeconds)
-        ms (-> total
-               (.minusSeconds (+ (* mins 60) seconds))
-               (.toMillis))]
-    (str (format "%02d" mins)
-         ":"
-         (format "%02d" seconds)
-         "."
-         (format "%03d" ms))))
-
 (defn get-weight []
   (println "Weight (kg): ")
   (let [weight (read-line)]
     (Double/parseDouble weight)))
 
+(defn replace-lap [laps lap lap-no]
+  (concat (subvec laps 0 (dec lap-no)) [{:lap lap-no :time lap :time-ms (to-ms lap)}] (subvec laps lap-no)))
+
+(defn confirm [laps]
+  (println "Accept [Y/N]")
+  (if (= "Y" (read-line))
+    laps
+    (loop [laps laps]
+      (println "Which lap to correct?")
+      (let [lap-no (Integer/parseInt (read-line))]
+        (println "Enter new time for lap " (str lap-no))
+        (let [new-time (str (read-line) "0")
+              laps (replace-lap laps new-time lap-no)]
+          (print-lap-summary laps)
+          (println "Accept [Y/N]")
+          (if (= "Y" (read-line))
+            laps
+            (recur (vec laps))))))))
+
 (defn todays-stats []
-  (let [date (get-date)
-        num-laps (get-number-of-laps)
-        laps (get-laps num-laps)
-        total-time (->> (map :time-ms laps)
-                        (reduce +)
-                        (java.time.Duration/ofMillis))
-        weight (get-weight)]
-    (println "Total time: " (get-total-time total-time))
-    (println "Laps::")
-    (clojure.pprint/print-table (map (fn [lap] (dissoc lap :time-ms)) laps))
-    (println "Accept? [Y/N]")
-    (when (= "Y" (read-line))
-      {:date (.toString date)
-       :weight weight
-       :laps laps})))
+  (let [date       (get-date)
+        num-laps   (get-number-of-laps)
+        laps       (get-laps num-laps)
+        weight     (get-weight)]
+    (print-lap-summary laps)
+    {:date   (.toString date)
+     :weight weight
+     :laps   (confirm laps)}))
 
 (defn -main [& _]
   (let [stats (load-json-file)
         today (todays-stats)]
-    (spit  "//home//stuart//Source//stuartstein777.github.io//fitness//daily.json"
+    (spit  "//home//stuart//Source//stuartstein777.github.io//fitness//debug-daily.json"
+           #_"debug-daily.json"
            (-> (update stats :days conj today)
                (json/generate-string {:date-format "yyyy-MM-dd"})))))
 
